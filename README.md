@@ -1,24 +1,22 @@
 <div align="center">
     <img src="images/halo.png" alt="logo" />
     <br>
-    <img src="https://img.shields.io/badge/version-0.1.0--alpha-FF69B4?style=for-the-badge" />
-    <img src="https://img.shields.io/badge/platform-Linux%20%7C%20Android-blue?style=for-the-badge" />
+    <img src="https://img.shields.io/badge/version-0.1.0--alpha.1-FF69B4?style=for-the-badge" />
+    <img src="https://img.shields.io/badge/platform-Linux-blue?style=for-the-badge" />
     <img src="https://img.shields.io/badge/license-GPL--3.0-green?style=for-the-badge"/>
 </div>
 <br>
 
 **Adaptive LoFi generator.**\
-A cross-platform, procedural LoFi generator that adapts your background audio in real-time. 
+A procedural LoFi generator that adapts your background audio in real-time.
 
 ---
 
 ## Features
 
-* **Procedural DSP** – Powered by `libpd`. Real-time Low-Pass filters and tape-wobble logic that work on Linux and Android.
-* **Environment Aware** – 
-    * **Linux:** Uses OpenCV to analyze room brightness and color temp.
-    * **Android:** Uses the physical **Ambient Light Sensor** (ALS) 
-* **Tiling-Aware (Hyprland)** – Deep integration with `hyprctl` to track active window classes and shift between audio profiles.
+* **Procedural DSP** – Powered by `Pedalboard` and `SoundDevice`
+* **Environment Aware** –
+  * **Linux:** Uses OpenCV to analyze room brightness and color temp.
 * **ASCII Visualizer** – A real-time video-to-ASCII aesthetic wrapper (optional/toggleable).
 * **Privacy First** – Local-only processing. No snapshots saved, no telemetry, no cloud bullshit.
 
@@ -26,34 +24,24 @@ A cross-platform, procedural LoFi generator that adapts your background audio in
 
 ## Installation (Linux)
 
-```bash
-git clone https://github.com/XeonXE534/NonomiBeat.git
-cd NonomiBeat
-
-bash ./install.sh
-```
----
-
-## Installation (Android)
-
-* WIP
+WIP
 
 ---
 
 ## Requirements
 
-| Platform | Dependencies                                   |
-|----------|------------------------------------------------|
-| Linux    | Arch/EndeavourOS, Hyprland, Python 3.10+       |
-| Android  | Android 8.0+, Light Sensor                     |
+* Python 3.10+
+* Linux
+* uv 
 
-> All packages/dependencies are installed via the `install.sh` script on Linux or bundled in the Android APK.
+> All packages/dependencies are installed via the `install.sh` script on Linux
+
 ---
 
 ## Notes
 
-* Arch First: Developed on EndeavourOS w/ Hyprland.
-* Privacy: Android version uses the Light Sensor by default to avoid unnecessary camera permissions.
+* Android version is planned
+* Android would use the physical Ambient Light Sensor (ALS) default to avoid unnecessary camera permissions. Will probably use Kotlin + Oboe
 
 ---
 

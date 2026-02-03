@@ -29,3 +29,6 @@ spinner() {
 }
 
 info "WIP: Installation script is under development."
+
+#sudo pacman -S libportaudio2 libsndfile1
+#uv pip install pedalboard sounddevice opencv-python numpy

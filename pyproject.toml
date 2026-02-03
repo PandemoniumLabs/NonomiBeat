@@ -1,11 +1,42 @@
 [build-system]
-requires = ["setuptools>=61.0", "wheel"]
-build-backend = "setuptools.build_meta"
+requires = ["hatchling"]
+build-backend = "hatchling.build"
 
 [project]
-name = "Project-Ibuki"
-version = "3.3.0"
-description = "Modern Terminal UI for anime streaming"
-authors = [{ name="XeonXE534", email="XeonXE1@proton.me" }]
+name = "nonomibeat"
+version = "0.1.0"
+description = "A procedural LoFi generator"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.13"
+dependencies = [
+    "pedalboard>=0.9.22",
+    "sounddevice>=0.5.5",
+    "soundfile>=0.13.1",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/nonomi"]
+
+[project.scripts]
+ibuki-gui = "nonomi.main:run"
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
+ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.13"
+warn_return_any = true
+warn_unused_configs = true
+
+[project.urls]
+Homepage = "https://github.com/XeonXE534/NonomiBeat"
+Issues = "https://github.com/XeonXE534/NonomiBeat/issues"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
