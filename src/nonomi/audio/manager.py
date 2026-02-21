@@ -1,14 +1,16 @@
 import threading
 import numpy as np
 import sounddevice as sd
-from collections import deque
 from rich.console import Console
 from dataclasses import dataclass
 
-from src.nonomi.audio.composer import MelodicGenerator
+from src.nonomi.audio.piano import AudioComposer
+from src.nonomi.audio.drums import Drums
+from src.nonomi.audio.engine import PianoFX, MasterFX
 
 @dataclass
 class PlayingNote:
+    """A scheduled piano note in the mix buffer."""
     audio_data: np.ndarray
     position: int = 0
     velocity: float = 1.0
@@ -16,191 +18,245 @@ class PlayingNote:
 
     @property
     def is_finished(self) -> bool:
-        return self.position >= (len(self.audio_data) + self.start_delay)
+        return self.position >= len(self.audio_data) + self.start_delay
 
     def get_chunk(self, size: int) -> np.ndarray:
         chunk = np.zeros((size, 2), dtype=np.float32)
-
         if self.position < self.start_delay:
-            wait_time = min(size, self.start_delay - self.position)
-            self.position += wait_time
-            if wait_time == size:
+            silence = min(size, self.start_delay - self.position)
+            self.position += silence
+            if silence == size:
                 return chunk
-            start_idx = wait_time
 
+            audio_start = silence
         else:
-            start_idx = 0
+            audio_start = 0
 
-        audio_pos = self.position - self.start_delay
-        remaining_audio = len(self.audio_data) - audio_pos
-        copy_size = min(size - start_idx, remaining_audio)
-
+        audio_pos   = self.position - self.start_delay
+        remaining   = len(self.audio_data) - audio_pos
+        copy_size   = min(size - audio_start, remaining)
         if copy_size > 0:
-            chunk[start_idx : start_idx + copy_size] = (
-                    self.audio_data[audio_pos : audio_pos + copy_size] * self.velocity
+            chunk[audio_start:audio_start + copy_size] = (
+                    self.audio_data[audio_pos:audio_pos + copy_size] * self.velocity
             )
             self.position += copy_size
-
         return chunk
 
-class AudioManager:
-    def __init__(self, sampler, composer, engine, samplerate=44100, blocksize=5096):
-        self.sampler = sampler
-        self.composer = composer
-        self.engine = engine
+class SequencerClock:
+    """Sample-accurate clock."""
+    STEPS_PER_BAR = 16
+
+    def __init__(self, bpm: float, samplerate: int):
         self.samplerate = samplerate
-        self.blocksize = blocksize
-        self.master_bus = np.zeros((8192, 2), dtype=np.float32)
+        self._total_samples = 0
+        self._set_bpm(bpm)
+        self._swing = 1.0
 
-        self.playing_notes = []
-        self.note_queue = deque()
-        self._lock = threading.Lock()
+    def _set_bpm(self, bpm: float):
+        spb = 60.0 / bpm
+        sps = spb / 4
+        self._sps = max(1, round(sps * self.samplerate))
+        self._bpm = bpm
 
-        self.beat_duration = 0.5
-        self.next_chord_time = 0
-        self.current_time = 0
-        self.melody_gen = MelodicGenerator(composer)
+    def set_bpm(self, bpm: float):
+        old = self._sps
+        self._set_bpm(bpm)
+        if old > 0:
+            frac = self._total_samples / old
+            self._total_samples = int(frac * self._sps)
 
-        self.enable_bass = True
-        self.enable_melody = False
+    def reset(self):
+        self._total_samples = 0
 
-        self.stream = None
+    @property
+    def samples_per_sixteenth(self) -> int:
+        return self._sps
+
+    @property
+    def samples_per_bar(self) -> int:
+        return self._sps * self.STEPS_PER_BAR
+
+    def _swing_offset(self, step_in_bar: int) -> int:
+        """Calculate swing offset for a given step in the bar."""
+        if self._swing == 0:
+            return 0
+
+        if step_in_bar % 4 == 2:
+            return round(self._sps * 2 * self._swing / 3)
+
+        return 0
+
+    def advance(self, frames: int) -> list:
+        """Advance the clock by a given number of frames and return a list of events that occur during this time."""
+        events = []
+        sps    = self._sps
+        start  = self._total_samples
+
+        first_step_sample = ((start + sps - 1) // sps) * sps
+
+        for step_sample in range(first_step_sample, start + frames, sps):
+            offset      = step_sample - start
+            if offset >= frames:
+                break
+
+            raw_step    = step_sample // sps
+            step_in_bar = raw_step % self.STEPS_PER_BAR
+            swing_delay = self._swing_offset(step_in_bar)
+
+            events.append(("drum_step",   offset + swing_delay))
+            if step_in_bar % 2 == 0:
+                events.append(("melody_step", offset + swing_delay))
+
+            if step_in_bar == 0:
+                events.append(("chord_change", offset))
+
+        self._total_samples += frames
+        return events
+
+class AudioManager:
+    """Manages audio playback, sequencing, and mixing."""
+    def __init__(self, sampler, bpm: float = 156.0, samplerate: int = 44100, blocksize: int = 512):
+        self.sampler    = sampler
+        self.samplerate = samplerate
+        self.blocksize  = blocksize
+        self.console    = Console()
+
+        self.composer    = AudioComposer(progression_length=8)
+        self.drums       = Drums(sampler, samplerate=samplerate)
+        self.master_fx   = MasterFX(samplerate=samplerate)
+        self.clock       = SequencerClock(bpm=bpm, samplerate=samplerate)
+
+        piano_fx = PianoFX(samplerate=samplerate)
+        self._processed_samples: dict[str, np.ndarray] = {}
+
+        for name, sample in sampler.samples.items():
+            raw = sample["data"]
+            if raw.ndim == 1:
+                raw = np.column_stack([raw, raw])
+            self._processed_samples[name] = piano_fx.process(raw)
+
+        self.playing_notes: list[PlayingNote] = []
+        self._lock   = threading.Lock()
+        self._stream: sd.OutputStream | None = None
         self._running = False
 
-        self.console = Console()
+        self.composer.generate_progression()
 
-    def _trigger_next_chord(self):
-        """Trigger the next chord"""
-        self.composer.get_next_chord()
+    def _trigger_chord(self):
+        """Play the current chord's bass and notes with a strum effect."""
+        notes = self.composer.get_chord_notes(octave=3)
+        bass  = self.composer.get_bass_note(octave=2)
 
-        note_names = self.composer.get_chord_notes(
-            self.composer.current_root,
-            3,
-            randomize_voicing=True
-        )
+        self._schedule_note(bass, velocity_range=(0.5, 0.7), delay_sec=0.0)
 
-        current_strum = 0
+        strum = 0.0
+        for note in notes:
+            self._schedule_note(note, velocity_range=(0.3, 0.5), delay_sec=strum)
+            strum += np.random.uniform(0.02, 0.05)
 
-        if self.enable_bass:
-            bass_note = self.composer.get_bass_note(octave=2)
-            sample = self.sampler.get_note(bass_note)
-            if sample:
-                playing_note = PlayingNote(
-                    audio_data=sample['data'],
-                    velocity=np.random.uniform(0.5, 0.7),
-                    start_delay=0
-                )
-                self.playing_notes.append(playing_note)
+    def _trigger_melody(self):
+        note = self.composer.get_melody_note()
+        if note:
+            self._schedule_note(note, velocity_range=(0.25, 0.40), delay_sec=0.0)
 
-        for note_name in note_names:
-            sample = self.sampler.get_note(note_name)
-            if sample:
-                delay_samples = int(current_strum * self.samplerate)
+    def _advance_chord(self):
+        changes = self.composer.advance_chord()
 
-                playing_note = PlayingNote(
-                    audio_data=sample['data'],
-                    velocity=np.random.uniform(0.3, 0.5),
-                    start_delay=delay_samples
-                )
-                self.playing_notes.append(playing_note)
-                current_strum += np.random.uniform(0.03, 0.06)
+        if changes.get("randomize_drums"):
+            self.drums.randomize_mutes()
 
-        if self.enable_melody:
-            melody_notes = self.melody_gen.generate_melody_notes(
-                num_notes=4,
-                octave=4,
-                use_weights=True
-            )
-            for i, note_name in enumerate(melody_notes):
-                sample = self.sampler.get_note(note_name)
-                if sample:
-                    delay = int((current_strum + i * 0.25) * self.samplerate)
-                    playing_note = PlayingNote(
-                        audio_data=sample['data'],
-                        velocity=np.random.uniform(0.4, 0.6),
-                        start_delay=delay
-                    )
-                    self.playing_notes.append(playing_note)
+        if "melody_density" in changes:
+            self.composer.melody_density = changes["melody_density"]
 
-    def set_progression_length(self, length: int):
-        """Change progression on the fly"""
-        with self._lock:
-            self.composer.regenerate_progression(length)
+        if "melody_off" in changes:
+            self.composer.melody_off = changes["melody_off"]
 
-    def set_key(self, key: str):
-        """Change musical key"""
-        with self._lock:
-            self.composer.set_key(key)
-
-    def toggle_bass(self):
-        """Turn bass on/off"""
-        self.enable_bass = not self.enable_bass
-
-    def toggle_melody(self):
-        """Turn melody on/off"""
-        self.enable_melody = not self.enable_melody
+    def _schedule_note(self, note_name: str, velocity_range: tuple, delay_sec: float):
+        processed = self._processed_samples.get(note_name)
+        if processed is None:
+            self.console.print(f"Note {note_name} not found :/", style="yellow")
+            return
+        self.playing_notes.append(PlayingNote(
+            audio_data=processed,
+            velocity=np.random.uniform(*velocity_range),
+            start_delay=int(delay_sec * self.samplerate),
+        ))
 
     def _audio_callback(self, outdata, frames, time_info, status):
         if status:
-            self.console.print(f"Audio callback status: {status}", style='yellow')
+            self.console.print(f"[Audio] {status}", style="yellow")
 
-        self.master_bus[:frames].fill(0)
+        bus = np.zeros((frames, 2), dtype=np.float32)
 
         with self._lock:
-            self.current_time += frames / self.samplerate
+            events = self.clock.advance(frames)
 
-            if self.current_time >= self.next_chord_time:
-                self._trigger_next_chord()
-                self.next_chord_time = self.current_time + self.beat_duration * 4
+            for (etype, offset, *_) in events:
+                if etype == "drum_step":
+                    self.drums.advance_step()
 
-            finished_notes = []
+                elif etype == "melody_step":
+                    self._trigger_melody()
+
+                elif etype == "chord_change":
+                    self._trigger_chord()
+                    self._advance_chord()
+
+            finished = []
             for i, note in enumerate(self.playing_notes):
-                chunk = note.get_chunk(frames)
-                self.master_bus[:frames] += chunk
-
+                bus[:frames] += note.get_chunk(frames)
                 if note.is_finished:
-                    finished_notes.append(i)
+                    finished.append(i)
 
-            for i in reversed(finished_notes):
+            for i in reversed(finished):
                 self.playing_notes.pop(i)
 
-        self.master_bus[:frames] *= 1
+            bus += self.drums.get_active_hits(frames)
 
-        processed = self.engine.apply_master_fx(self.master_bus[:frames])
-        outdata[:] = np.tanh(processed.reshape(-1, 2) * 1.5) / 1.5
+        processed = self.master_fx.process(bus)
+        outdata[:] = np.clip(processed, -1.0, 1.0)
 
-    async def start(self):
-        """Start the audio stream"""
-        self.stream = sd.OutputStream(
+    def start(self):
+        self._stream = sd.OutputStream(
             samplerate=self.samplerate,
             blocksize=self.blocksize,
             channels=2,
             dtype=np.float32,
-            callback=self._audio_callback
+            callback=self._audio_callback,
         )
-
-        self.stream.start()
+        self._stream.start()
         self._running = True
-
-        with self._lock:
-            self._trigger_next_chord()
-            self.next_chord_time = self.current_time + self.beat_duration * 4
-
-        self.console.print("AudioManager started :3", style='green')
+        self.console.print("AudioManager started :3", style="green")
 
     async def stop(self):
-        """Stop the audio stream"""
         self._running = False
-        if self.stream:
-            self.stream.stop()
-            self.stream.close()
-        self.console.print("AudioManager stopped :3", style='green')
+        if self._stream:
+            self._stream.stop()
+            self._stream.close()
+
+        self.console.print("AudioManager stopped :3", style="green")
+
+    def reset_clock(self):
+        with self._lock:
+            self.clock.reset()
+            self.drums.reset_step()
+
+    def regenerate(self):
+        """JS: generateProgression button — pick new key + progression."""
+        with self._lock:
+            self.composer.generate_progression()
+            self.clock.reset()
+            self.drums.reset_step()
 
     def set_tempo(self, bpm: float):
-        """Change tempo (BMP)"""
         with self._lock:
-            self.beat_duration = 60.0 / bpm
+            self.clock.set_bpm(bpm)
 
     def update_brightness(self, brightness: float):
-        """Update filter based on camera brightness"""
-        self.engine.update_filter(brightness)
+        self.master_fx.update_filter(brightness)
+
+    def toggle_drums(self):
+        self.drums.toggle_drums()
+
+    def toggle_melody(self):
+        self.composer.melody_off = not self.composer.melody_off
