@@ -184,7 +184,7 @@ class AudioManager:
 
     def _audio_callback(self, outdata, frames, time_info, status):
         if status:
-            self.console.print(f"[Audio] {status}", style="yellow")
+            self.console.log(f"[Audio] {status}", style="yellow")
 
         bus = np.zeros((frames, 2), dtype=np.float32)
 
@@ -225,16 +225,11 @@ class AudioManager:
             callback=self._audio_callback,
         )
         self._stream.start()
-        self._running = True
-        self.console.print("AudioManager started :3", style="green")
 
     async def stop(self):
-        self._running = False
         if self._stream:
             self._stream.stop()
             self._stream.close()
-
-        self.console.print("AudioManager stopped :3", style="green")
 
     def reset_clock(self):
         with self._lock:

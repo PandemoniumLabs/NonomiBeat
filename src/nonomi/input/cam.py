@@ -2,6 +2,7 @@ import cv2
 import numpy as np
 import asyncio
 from collections import deque
+import rich
 
 class CameraInput:
     def __init__(self, buffer_size=30, update_rate=0.05):
@@ -18,19 +19,18 @@ class CameraInput:
     async def start(self):
         self.cap = cv2.VideoCapture(0)
         if not self.cap.isOpened():
-            print("Camera not found :(")
+            rich.print("[bold red]Error: Could not open camera. Please check your camera connection and permissions :([/bold red]")
             return
 
         self._running = True
         asyncio.create_task(self._capture_loop())
-        print("Camera task spawned :3")
 
     async def _capture_loop(self):
         while self._running:
             ret, frame = await asyncio.to_thread(self.cap.read)
 
             if not ret or frame is None:
-                print("Camera dropped a frame :/")
+                rich.print("[yellow]Camera dropped a frame :/[/yellow]")
                 await asyncio.sleep(self.update_rate)
                 continue
 
@@ -46,10 +46,10 @@ class CameraInput:
                 self.brightness = sum(self.brightness_buffer) / len(self.brightness_buffer)
                 self.hue = sum(self.hue_buffer) / len(self.hue_buffer)
 
-            #await asyncio.sleep(self.update_rate)
-
     async def stop(self):
         self._running = False
+        if self.cap:
+            self.cap.release()
 
     def get_values(self):
         return self.brightness, self.hue

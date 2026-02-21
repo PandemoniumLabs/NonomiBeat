@@ -17,7 +17,7 @@ class NonomiBeat:
         self.camera  = None
         self.console = Console()
 
-    async def main(self):
+    async def main(self, ready_event: asyncio.Event = None):
         await self.sampler.start()
 
         self.manager = AudioManager(
@@ -32,16 +32,14 @@ class NonomiBeat:
         self.camera = CameraInput(update_rate=0.1)
         await self.camera.start()
 
-        try:
-            while True:
-                brightness, warmth = self.camera.get_values()
-                self.manager.update_brightness(brightness)
-                await asyncio.sleep(0.1)
+        if ready_event:
+            ready_event.set()
 
-        except KeyboardInterrupt:
-            await self.stop()
+        while True:
+            brightness, warmth = self.camera.get_values()
+            self.manager.update_brightness(brightness)
+            await asyncio.sleep(0.1)
 
     async def stop(self):
-        self.console.print("Shutting down... :3", style="green")
         await self.manager.stop()
         await self.camera.stop()
