@@ -27,35 +27,3 @@ def get_logger(name: str = "app_logger") -> logging.Logger:
     return logger
 
 default_logger = get_logger()
-
-class CStdoutCapturer:
-    def __init__(self):
-        self.pipe_out, self.pipe_in = os.pipe()
-        self.thread = threading.Thread(target=self._drain_pipe, daemon=True)
-        self.original_stdout_fd = sys.stdout.fileno()
-        self.saved_stdout_fd = os.dup(self.original_stdout_fd)
-
-    def start(self):
-        """Start pipleline"""
-        os.dup2(self.pipe_in, self.original_stdout_fd)
-        self.thread.start()
-
-    def _drain_pipe(self):
-        while True:
-            data = os.read(self.pipe_out, 1024)
-            if not data:
-                break
-            os.write(self.saved_stdout_fd, b"PD_C_CORE: " + data)
-
-    def stop(self):
-        """Stop and cleanup"""
-        os.dup2(self.saved_stdout_fd, self.original_stdout_fd)
-        os.close(self.pipe_in)
-        os.close(self.pipe_out)
-
-    @staticmethod
-    def pd_print_callback(message):
-        """Callback for PureData print statements"""
-        msg = message.strip()
-        if not msg.replace('.','').isdigit():
-            print(f"[PD MSG] {msg}")

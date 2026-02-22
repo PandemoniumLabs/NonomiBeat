@@ -1,4 +1,6 @@
 import threading
+from collections import deque
+
 import numpy as np
 import sounddevice as sd
 from rich.console import Console
@@ -126,14 +128,14 @@ class AudioManager:
         self.master_fx   = MasterFX(samplerate=samplerate)
         self.clock       = SequencerClock(bpm=bpm, samplerate=samplerate)
 
-        piano_fx = PianoFX(samplerate=samplerate)
+        self.piano_fx = PianoFX(samplerate=samplerate)
         self._processed_samples: dict[str, np.ndarray] = {}
 
         for name, sample in sampler.samples.items():
             raw = sample["data"]
             if raw.ndim == 1:
                 raw = np.column_stack([raw, raw])
-            self._processed_samples[name] = piano_fx.process(raw)
+            self._processed_samples[name] = self.piano_fx.process(raw)
 
         self.playing_notes: list[PlayingNote] = []
         self._lock   = threading.Lock()
@@ -141,6 +143,8 @@ class AudioManager:
         self._running = False
 
         self.composer.generate_progression()
+
+        self.viz_buffer: deque[np.ndarray] = deque(maxlen=5)
 
     def _trigger_chord(self):
         """Play the current chord's bass and notes with a strum effect."""
@@ -184,7 +188,8 @@ class AudioManager:
 
     def _audio_callback(self, outdata, frames, time_info, status):
         if status:
-            self.console.log(f"[Audio] {status}", style="yellow")
+            #self.console.log(f"[Audio] {status}", style="yellow")
+            pass
 
         bus = np.zeros((frames, 2), dtype=np.float32)
 
@@ -214,6 +219,7 @@ class AudioManager:
             bus += self.drums.get_active_hits(frames)
 
         processed = self.master_fx.process(bus)
+        self.viz_buffer.append(processed.copy())
         outdata[:] = np.clip(processed, -1.0, 1.0)
 
     def start(self):

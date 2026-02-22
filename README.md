@@ -1,8 +1,7 @@
 <div align="center">
     <img src="images/halo.png" alt="logo" />
     <br>
-    <img src="https://img.shields.io/badge/version-1.0.0-FF69B4?style=for-the-badge" />
-    <img src="https://img.shields.io/badge/platform-Linux-blue?style=for-the-badge" />
+    <img src="https://img.shields.io/badge/version-1.1.0-FF69B4?style=for-the-badge" />
     <img src="https://img.shields.io/badge/license-GPL--3.0-green?style=for-the-badge"/>
 </div>
 <br>
@@ -12,42 +11,44 @@ A procedural LoFi generator that adapts your background audio in real-time.
 
 ---
 
-## Features
+## Installation
 
-* **Procedural DSP** – Powered by `Pedalboard` and `SoundDevice`
-* **Environment Aware** –
-  * **Linux:** Uses OpenCV to analyze room brightness and color temp.
-* **ASCII Visualizer** – A real-time video-to-ASCII aesthetic wrapper (optional/toggleable).
-* **Privacy First** – Local-only processing. No snapshots saved, no telemetry, no cloud bullshit.
+```bash
+git clone https://github.com/PandemoniumLabs/NonomiBeat.git
+cd NonomiBeat
+python -m venv .venv
+source .venv/bin/activate
+pip install -e .
+```
 
 ---
 
-## Installation (Linux)
+## Usage
 
-WIP
-
+```bash
+cd NonomiBeat             # if not in dir already
+python -m src.nonomi.main
+```
 ---
 
 ## Requirements
 
 * Python 3.10+
 * Linux
-* uv 
-
-> All packages/dependencies are installed via the `install.sh` script on Linux
 
 ---
 
 ## Notes
 
-* Android version is planned
-* Android would use the physical Ambient Light Sensor (ALS) default to avoid unnecessary camera permissions. Will probably use Kotlin + Oboe
+* Install script is not ready
+* GUI is coming in a future update, but the core functionality is already implemented and can be run via CLI.
+* Also, Android support plan was scrapped due to the complexity of real-time audio processing on mobile platforms and the lack of suitable libraries.
 
 ---
 
 ## License
 
-GPL 3.0 – see LICENSE file for details
+GPL 3.0 – see LICENCE file for details
 
 ---
 

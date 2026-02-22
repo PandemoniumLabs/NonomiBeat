@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "nonomibeat"
-version = "0.1.0"
+version = "1.1.0"
 description = "A procedural LoFi generator"
 readme = "README.md"
 requires-python = ">=3.13"
@@ -12,6 +12,10 @@ dependencies = [
     "pedalboard>=0.9.22",
     "sounddevice>=0.5.5",
     "soundfile>=0.13.1",
+    "numpy",
+    "opencv-python",
+    "readchar",
+    "rich"
 ]
 
 [tool.hatch.build.targets.wheel]

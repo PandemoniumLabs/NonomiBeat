@@ -1,6 +1,7 @@
 import asyncio
-from src.nonomi.ui.cli import start
 import argparse
+
+from src.nonomi.ui.cli import NonomiBeatCLI
 
 parser = argparse.ArgumentParser(
     prog='NonomiBeat',
@@ -18,7 +19,7 @@ args = parser.parse_args()
 
 async def main():
     if args.mode == "cli":
-        await start(True if args.fs else False)
+        await NonomiBeatCLI().start(True if args.fs else False)
 
     elif args.mode == "tui":
         print("TUI mode is not implemented yet. Please use CLI mode.")
